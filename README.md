@@ -1,6 +1,6 @@
-# Reel
+# Movie Tracker
 
-A Letterboxd-style site for rating films and TV series out of 5, to one decimal place. Built with Next.js (App Router), TypeScript and Tailwind.
+Movie Tracker is a Letterboxd-style site for rating films and TV series out of 5, to one decimal place. Built with Next.js (App Router), TypeScript and Tailwind.
 
 ## Setup
 

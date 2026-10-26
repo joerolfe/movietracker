@@ -18,6 +18,7 @@ export interface Entry {
   poster: string | null;
   rating: number; // 0-5, one decimal
   review: string;
+  groups?: string[]; // user-defined collections, e.g. "Marvel"
   watched: string; // YYYY-MM-DD
   updatedAt: number;
 }
@@ -35,4 +36,18 @@ export function todayISO(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Trim, drop empties and case-insensitive duplicates, keeping first-seen casing. */
+export function normalizeGroups(groups: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const g of groups) {
+    const name = g.trim().replace(/\s+/g, " ");
+    if (name && !seen.has(name.toLowerCase())) {
+      seen.add(name.toLowerCase());
+      out.push(name);
+    }
+  }
+  return out;
 }

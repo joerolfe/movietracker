@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import RateModal from "@/components/RateModal";
 import Stars from "@/components/Stars";
 import { useEntries } from "@/lib/useEntries";
-import { entryKey, type Entry, type MediaType, type SearchResult } from "@/lib/types";
+import { entryKey, normalizeGroups, type Entry, type MediaType, type SearchResult } from "@/lib/types";
 
 type Sort = "recent" | "highest" | "lowest" | "az";
 
@@ -59,7 +59,7 @@ const GRID = "grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-
 
 function TabPanel({
   type,
-  entries,
+  entries: allEntries,
   active,
   onOpen,
 }: {
@@ -70,6 +70,7 @@ function TabPanel({
 }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("recent");
+  const [group, setGroup] = useState<string | null>(null);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,7 +109,18 @@ function TabPanel({
     };
   }, [query, type]);
 
-  const byKey = useMemo(() => new Map(entries.map((e) => [e.key, e])), [entries]);
+  const byKey = useMemo(() => new Map(allEntries.map((e) => [e.key, e])), [allEntries]);
+
+  const groups = useMemo(() => normalizeGroups(allEntries.flatMap((e) => e.groups ?? [])).sort((a, b) => a.localeCompare(b)), [allEntries]);
+  // If the active group disappears (last entry removed/edited), fall back to All.
+  const activeGroup = group && groups.some((g) => g.toLowerCase() === group.toLowerCase()) ? group : null;
+  const entries = useMemo(
+    () =>
+      activeGroup
+        ? allEntries.filter((e) => e.groups?.some((g) => g.toLowerCase() === activeGroup.toLowerCase()))
+        : allEntries,
+    [allEntries, activeGroup],
+  );
 
   const sorted = useMemo(() => {
     const list = [...entries];
@@ -183,6 +195,26 @@ function TabPanel({
           </select>
         </div>
 
+        {groups.length > 0 && (
+          <div className="mb-4 flex flex-wrap gap-2" aria-label="Filter by group">
+            {[null, ...groups].map((g) => (
+              <button
+                key={g ?? "__all"}
+                type="button"
+                onClick={() => setGroup(g)}
+                aria-pressed={activeGroup === g}
+                className={`rounded-full border px-3 py-1 text-sm ${
+                  activeGroup === g
+                    ? "border-accent bg-accent text-black"
+                    : "border-line bg-panel text-muted hover:border-accent hover:text-accent"
+                }`}
+              >
+                {g ?? "All"}
+              </button>
+            ))}
+          </div>
+        )}
+
         {entries.length === 0 ? (
           <div className="rounded-xl border border-dashed border-line px-6 py-16 text-center">
             <Stars rating={0} size={28} />
@@ -240,6 +272,7 @@ export default function Home() {
           key: entryKey(raw.type, raw.id),
           rating: Math.min(5, Math.max(0, Math.round(raw.rating * 10) / 10)),
           review: raw.review ?? "",
+          groups: Array.isArray(raw.groups) ? normalizeGroups(raw.groups.filter((g) => typeof g === "string")) : [],
           year: raw.year ?? "",
           poster: raw.poster ?? null,
           watched: raw.watched ?? "",
@@ -251,7 +284,7 @@ export default function Home() {
       replaceAll([...merged.values()]);
       setNotice(`Imported ${valid.length} rating${valid.length === 1 ? "" : "s"}.`);
     } catch {
-      setNotice("Import failed: that file isn't a valid Reel export.");
+      setNotice("Import failed: that file isn't a valid Movie Tracker export.");
     }
   };
 
@@ -259,7 +292,7 @@ export default function Home() {
     <div className="mx-auto w-full max-w-5xl flex-1 px-4 pb-16">
       <header className="flex items-center justify-between gap-3 py-5">
         <h1 className="text-2xl font-bold tracking-tight">
-          <span className="text-accent">●</span> Reel
+          <span className="text-accent">●</span> Movie Tracker
         </h1>
         <div className="flex gap-2">
           <button
@@ -335,6 +368,7 @@ export default function Home() {
           key={entryKey(selected.type, selected.id)}
           item={selected}
           existing={existing}
+          allGroups={normalizeGroups(entries.flatMap((e) => e.groups ?? []))}
           onSave={(e) => {
             save(e);
             close();

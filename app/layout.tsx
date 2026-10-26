@@ -8,7 +8,7 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Reel",
+  title: "Movie Tracker",
   description: "Rate films and TV series out of 5, to one decimal place.",
 };
 

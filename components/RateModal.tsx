@@ -2,23 +2,42 @@
 
 import { useEffect, useState } from "react";
 import Stars from "./Stars";
-import { entryKey, snapRating, todayISO, type Entry, type SearchResult } from "@/lib/types";
+import { entryKey, normalizeGroups, snapRating, todayISO, type Entry, type SearchResult } from "@/lib/types";
 
 const PRESETS = [1, 2, 2.5, 3, 3.5, 4, 4.5, 5];
 
 interface RateModalProps {
   item: SearchResult;
   existing?: Entry;
+  allGroups: string[];
   onSave: (entry: Entry) => void;
   onRemove: (key: string) => void;
   onClose: () => void;
 }
 
-export default function RateModal({ item, existing, onSave, onRemove, onClose }: RateModalProps) {
+export default function RateModal({ item, existing, allGroups, onSave, onRemove, onClose }: RateModalProps) {
   const [rating, setRating] = useState(existing?.rating ?? 3);
   const [draft, setDraft] = useState((existing?.rating ?? 3).toFixed(1));
   const [watched, setWatched] = useState(existing?.watched ?? todayISO());
   const [review, setReview] = useState(existing?.review ?? "");
+  const [groups, setGroups] = useState<string[]>(existing?.groups ?? []);
+  const [groupDraft, setGroupDraft] = useState("");
+  const [detected, setDetected] = useState<string[]>([]);
+  const isNew = !existing;
+
+  // Auto-detect franchises. New entries get them pre-ticked; existing ones only see them as suggestions.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/details?type=${item.type}&id=${item.id}`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : { groups: [] }))
+      .then((data: { groups?: string[] }) => {
+        const found = data.groups ?? [];
+        setDetected(found);
+        if (isNew && found.length) setGroups((prev) => normalizeGroups([...prev, ...found]));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [item.type, item.id, isNew]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -45,6 +64,16 @@ export default function RateModal({ item, existing, onSave, onRemove, onClose }:
     if (Number.isFinite(n)) setRating(snapRating(n));
   };
 
+  const has = (g: string) => groups.some((x) => x.toLowerCase() === g.toLowerCase());
+  const toggleGroup = (g: string) =>
+    setGroups((prev) => (has(g) ? prev.filter((x) => x.toLowerCase() !== g.toLowerCase()) : normalizeGroups([...prev, g])));
+  const addDraft = () => {
+    if (groupDraft.trim()) toggleGroupOn(groupDraft);
+    setGroupDraft("");
+  };
+  const toggleGroupOn = (g: string) => setGroups((prev) => normalizeGroups([...prev, g]));
+  const groupOptions = normalizeGroups([...allGroups, ...detected, ...groups]);
+
   const submit = () => {
     onSave({
       key: entryKey(item.type, item.id),
@@ -55,6 +84,7 @@ export default function RateModal({ item, existing, onSave, onRemove, onClose }:
       poster: item.poster,
       rating,
       review: review.trim(),
+      groups: normalizeGroups(groups),
       watched: watched || todayISO(),
       updatedAt: Date.now(),
     });
@@ -160,6 +190,56 @@ export default function RateModal({ item, existing, onSave, onRemove, onClose }:
               onChange={(e) => setWatched(e.target.value)}
               className="rounded-lg border border-line bg-bg px-3 py-2 outline-none focus:border-accent"
             />
+          </div>
+
+          <div>
+            <label htmlFor="group-input" className="mb-1 block text-sm text-muted">
+              Groups <span className="text-muted/60">(e.g. Marvel, Star Wars)</span>
+            </label>
+            {detected.length > 0 && (
+              <p className="mb-2 text-xs text-muted">Auto-detected: {detected.join(", ")}</p>
+            )}
+            {groupOptions.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {groupOptions.map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => toggleGroup(g)}
+                    aria-pressed={has(g)}
+                    className={`rounded-full border px-3 py-1 text-sm ${
+                      has(g)
+                        ? "border-accent bg-accent text-black"
+                        : "border-line bg-bg text-muted hover:border-accent hover:text-accent"
+                    }`}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                id="group-input"
+                value={groupDraft}
+                onChange={(e) => setGroupDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addDraft();
+                  }
+                }}
+                placeholder="New group…"
+                className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 outline-none focus:border-accent"
+              />
+              <button
+                type="button"
+                onClick={addDraft}
+                className="rounded-lg border border-line px-3 py-2 text-sm hover:border-accent hover:text-accent"
+              >
+                Add
+              </button>
+            </div>
           </div>
 
           <div>
