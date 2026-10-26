@@ -19,8 +19,24 @@ export interface Entry {
   rating: number; // 0-5, one decimal
   review: string;
   groups?: string[]; // user-defined collections, e.g. "Marvel"
+  minutes?: number; // total duration: film runtime, or all aired episodes for a series
+  episodes?: number; // series only
+  seasons?: number; // series only
   watched: string; // YYYY-MM-DD
   updatedAt: number;
+}
+
+export interface WatchItem {
+  key: string; // `${type}-${id}`
+  id: number;
+  type: MediaType;
+  title: string;
+  year: string;
+  poster: string | null;
+  minutes?: number;
+  episodes?: number;
+  seasons?: number;
+  addedAt: number;
 }
 
 export const entryKey = (type: MediaType, id: number) => `${type}-${id}`;
@@ -50,4 +66,33 @@ export function normalizeGroups(groups: string[]): string[] {
     }
   }
   return out;
+}
+
+export interface TitleFacts {
+  minutes?: number;
+  episodes?: number;
+  seasons?: number;
+}
+
+/** 148 -> "2h 28m", 45 -> "45m". */
+export function formatDuration(minutes: number): string {
+  const total = Math.round(minutes);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/** "3 seasons · 30 episodes · 25h 10m" / "2h 28m" — empty string when nothing is known. */
+export function describeFacts(f: TitleFacts, compact = false): string {
+  const parts: string[] = [];
+  if (compact) {
+    if (f.episodes) parts.push(`${f.episodes} ep${f.episodes === 1 ? "" : "s"}`);
+    if (f.minutes) parts.push(formatDuration(f.minutes));
+    return parts.join(" · ");
+  }
+  if (f.seasons) parts.push(`${f.seasons} season${f.seasons === 1 ? "" : "s"}`);
+  if (f.episodes) parts.push(`${f.episodes} episode${f.episodes === 1 ? "" : "s"}`);
+  if (f.minutes) parts.push(formatDuration(f.minutes));
+  return parts.join(" · ");
 }

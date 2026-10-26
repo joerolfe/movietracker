@@ -2,7 +2,17 @@
 
 import { useEffect, useState } from "react";
 import Stars from "./Stars";
-import { entryKey, normalizeGroups, snapRating, todayISO, type Entry, type SearchResult } from "@/lib/types";
+import { fetchDetails } from "@/lib/details";
+import {
+  describeFacts,
+  entryKey,
+  normalizeGroups,
+  snapRating,
+  todayISO,
+  type Entry,
+  type SearchResult,
+  type TitleFacts,
+} from "@/lib/types";
 
 const PRESETS = [1, 2, 2.5, 3, 3.5, 4, 4.5, 5];
 
@@ -23,16 +33,20 @@ export default function RateModal({ item, existing, allGroups, onSave, onRemove,
   const [groups, setGroups] = useState<string[]>(existing?.groups ?? []);
   const [groupDraft, setGroupDraft] = useState("");
   const [detected, setDetected] = useState<string[]>([]);
+  const [facts, setFacts] = useState<TitleFacts>({
+    minutes: existing?.minutes,
+    episodes: existing?.episodes,
+    seasons: existing?.seasons,
+  });
   const isNew = !existing;
 
   // Auto-detect franchises. New entries get them pre-ticked; existing ones only see them as suggestions.
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`/api/details?type=${item.type}&id=${item.id}`, { signal: controller.signal })
-      .then((r) => (r.ok ? r.json() : { groups: [] }))
-      .then((data: { groups?: string[] }) => {
-        const found = data.groups ?? [];
+    fetchDetails(item.type, item.id, controller.signal)
+      .then(({ groups: found, minutes, episodes, seasons }) => {
         setDetected(found);
+        setFacts((prev) => ({ minutes: minutes ?? prev.minutes, episodes: episodes ?? prev.episodes, seasons: seasons ?? prev.seasons }));
         if (isNew && found.length) setGroups((prev) => normalizeGroups([...prev, ...found]));
       })
       .catch(() => {});
@@ -85,6 +99,7 @@ export default function RateModal({ item, existing, allGroups, onSave, onRemove,
       rating,
       review: review.trim(),
       groups: normalizeGroups(groups),
+      ...facts,
       watched: watched || todayISO(),
       updatedAt: Date.now(),
     });
@@ -118,6 +133,7 @@ export default function RateModal({ item, existing, allGroups, onSave, onRemove,
             <p className="text-sm text-muted">
               {item.year || "—"} · {item.type === "movie" ? "Film" : "TV series"}
             </p>
+            {describeFacts(facts) && <p className="text-sm text-muted">{describeFacts(facts)}</p>}
             <div className="mt-3 flex items-center gap-2">
               <Stars rating={rating} size={22} />
               <span className="text-xl font-semibold tabular-nums text-star">{rating.toFixed(1)}</span>

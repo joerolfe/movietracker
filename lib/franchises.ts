@@ -38,13 +38,13 @@ export const FRANCHISES: FranchiseRule[] = [
   },
 ];
 
-export interface TitleFacts {
+export interface FranchiseFacts {
   companies: string[];
   collection: string | null;
   keywords: string[];
 }
 
-export function detectGroups(facts: TitleFacts): string[] {
+export function detectGroups(facts: FranchiseFacts): string[] {
   const any = (res: RegExp[] | undefined, values: string[]) =>
     !!res && values.some((v) => res.some((re) => re.test(v)));
   const collection = facts.collection ? [facts.collection] : [];
