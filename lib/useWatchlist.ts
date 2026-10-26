@@ -32,6 +32,11 @@ export function useWatchlist() {
     setItems(read());
   }, []);
 
+  const replaceAll = useCallback((next: WatchItem[]) => {
+    setItems(next);
+    write(next);
+  }, []);
+
   const add = useCallback((item: WatchItem) => {
     setItems((prev) => {
       if (prev.some((i) => i.key === item.key)) return prev;
@@ -58,5 +63,5 @@ export function useWatchlist() {
     });
   }, []);
 
-  return { items, add, remove, update };
+  return { items, add, remove, update, replaceAll };
 }

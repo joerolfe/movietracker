@@ -513,7 +513,7 @@ export default function Home() {
   const close = () => setSelected(null);
 
   const exportJson = () => {
-    const blob = new Blob([JSON.stringify(entries, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ version: 2, entries, watchlist: watchlist.items }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -525,8 +525,11 @@ export default function Home() {
   const importJson = async (file: File) => {
     try {
       const data = JSON.parse(await file.text());
-      if (!Array.isArray(data)) throw new Error("not an array");
-      const valid = data.filter(
+      // v1 exports were a bare array of ratings; v2 is { entries, watchlist }.
+      const rawEntries: unknown = Array.isArray(data) ? data : data?.entries;
+      const rawWatchlist: unknown = Array.isArray(data) ? [] : (data?.watchlist ?? []);
+      if (!Array.isArray(rawEntries) || !Array.isArray(rawWatchlist)) throw new Error("bad shape");
+      const valid = rawEntries.filter(
         (e): e is Entry =>
           e &&
           typeof e.id === "number" &&
@@ -551,7 +554,34 @@ export default function Home() {
         if (!current || e.updatedAt >= current.updatedAt) merged.set(e.key, e);
       }
       replaceAll([...merged.values()]);
-      setNotice(`Imported ${valid.length} rating${valid.length === 1 ? "" : "s"}.`);
+
+      // Merge the watchlist by key; anything already rated doesn't belong on it.
+      const list = new Map(watchlist.items.map((i) => [i.key, i]));
+      let addedToList = 0;
+      for (const raw of rawWatchlist) {
+        if (!raw || typeof raw.id !== "number" || (raw.type !== "movie" && raw.type !== "tv") || typeof raw.title !== "string")
+          continue;
+        const key = entryKey(raw.type, raw.id);
+        if (merged.has(key)) continue;
+        if (!list.has(key)) addedToList++;
+        list.set(key, {
+          key,
+          id: raw.id,
+          type: raw.type,
+          title: raw.title,
+          year: raw.year ?? "",
+          poster: raw.poster ?? null,
+          minutes: raw.minutes,
+          episodes: raw.episodes,
+          seasons: raw.seasons,
+          addedAt: raw.addedAt ?? Date.now(),
+        });
+      }
+      for (const key of merged.keys()) list.delete(key);
+      watchlist.replaceAll([...list.values()]);
+
+      const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+      setNotice(`Imported ${plural(valid.length, "rating")} and ${addedToList} new watchlist ${addedToList === 1 ? "title" : "titles"}.`);
     } catch {
       setNotice("Import failed: that file isn't a valid Movie Tracker export.");
     }
@@ -574,7 +604,7 @@ export default function Home() {
           <button
             type="button"
             onClick={exportJson}
-            disabled={entries.length === 0}
+            disabled={entries.length === 0 && watchlist.items.length === 0}
             className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-40 disabled:hover:border-line disabled:hover:text-inherit"
           >
             Export
