@@ -1,36 +1,28 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Reel
 
-## Getting Started
+A Letterboxd-style site for rating films and TV series out of 5, to one decimal place. Built with Next.js (App Router), TypeScript and Tailwind.
 
-First, run the development server:
+## Setup
 
 ```bash
+npm install
+cp .env.example .env.local   # then add your TMDB key
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`TMDB_API_KEY` accepts either a TMDB v3 API key (sent as `api_key`) or a v4 read access token (any key longer than 40 characters, sent as a Bearer header). Get one at https://www.themoviedb.org/settings/api. The key is only used by the server route `/api/search`, never sent to the browser.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Structure
 
-## Learn More
+- `app/page.tsx` – Films / TV series tabs, search, rated grid, sorting, stats, import/export
+- `app/api/search/route.ts` – `GET /api/search?type=movie|tv&q=...` TMDB proxy (18 results max)
+- `components/RateModal.tsx` – slider, number input, presets, ±0.1, watched date, review
+- `components/Stars.tsx` – five stars with fractional fill
+- `lib/types.ts` – `Entry` / `SearchResult` types and rating helpers
+- `lib/useEntries.ts` – storage hook (`entries`, `save`, `remove`, `replaceAll`)
 
-To learn more about Next.js, take a look at the following resources:
+## Storage
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Ratings live in `localStorage` (key `reel:entries`) behind `useEntries`. Nothing else touches storage, so swapping in Supabase later only means changing that hook. Use Export / Import (merge by key, newest `updatedAt` wins) to back up or move ratings between browsers.
