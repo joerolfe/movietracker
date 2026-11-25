@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import AccountSheet, { STATUS_DOT, STATUS_TEXT } from "@/components/AccountSheet";
 import RateModal from "@/components/RateModal";
 import Sheet from "@/components/Sheet";
+import SyncSheet, { STATUS_DOT, STATUS_TEXT } from "@/components/SyncSheet";
 import Stars from "@/components/Stars";
 import { fetchDetails, getFacts } from "@/lib/details";
-import { useAuth } from "@/lib/useAuth";
 import { useEntries } from "@/lib/useEntries";
 import type { SyncStatus } from "@/lib/useSyncedList";
 import { useWatchlist } from "@/lib/useWatchlist";
@@ -517,12 +516,11 @@ function WatchlistSheet({
 }
 
 export default function Home() {
-  const auth = useAuth();
-  const { entries, loaded, status: entriesStatus, save, remove, replaceAll, refresh } = useEntries(auth.user);
-  const watchlist = useWatchlist(auth.user);
+  const { entries, loaded, status: entriesStatus, save, remove, replaceAll, refresh } = useEntries();
+  const watchlist = useWatchlist();
   const status = worst(entriesStatus, watchlist.status);
   const [tab, setTabState] = useState<TabId>("movie");
-  const [account, setAccount] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
   const [picked, setPicked] = useState<WatchItem | null>(null);
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -624,12 +622,12 @@ export default function Home() {
         </h1>
         <button
           type="button"
-          onClick={() => setAccount(true)}
-          aria-label={`Account and sync: ${STATUS_TEXT[status]}`}
+          onClick={() => setSyncOpen(true)}
+          aria-label={`Sync and backup: ${STATUS_TEXT[status]}`}
           className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm hover:border-accent hover:text-accent"
         >
           <span className={`h-2 w-2 rounded-full ${STATUS_DOT[status]}`} aria-hidden />
-          {auth.user ? "Account" : auth.enabled ? "Sign in" : "Backup"}
+          {status === "local" ? "Backup" : "Sync"}
         </button>
         <input
           ref={fileRef}
@@ -741,15 +739,14 @@ export default function Home() {
         />
       )}
 
-      {account && (
-        <AccountSheet
-          user={auth.user}
+      {syncOpen && (
+        <SyncSheet
           status={status}
           canExport={entries.length > 0 || watchlist.items.length > 0}
           onImport={() => fileRef.current?.click()}
           onExport={exportJson}
           onSync={refresh}
-          onClose={() => setAccount(false)}
+          onClose={() => setSyncOpen(false)}
         />
       )}
 

@@ -1,15 +1,14 @@
 "use client";
 
 import { useCallback } from "react";
-import type { User } from "@supabase/supabase-js";
 import type { TitleFacts, WatchItem } from "./types";
 import { useSyncedList } from "./useSyncedList";
 
 const missing = (_local: WatchItem, remote: WatchItem | undefined) => !remote;
 
-/** Watchlist, stored locally and synced to Supabase when signed in. */
-export function useWatchlist(user: User | null) {
-  const { items, status, commit, current } = useSyncedList<WatchItem>("watchlist", user, missing);
+/** Watchlist, stored locally and synced to Supabase when configured. */
+export function useWatchlist() {
+  const { items, status, commit, current } = useSyncedList<WatchItem>("watchlist", missing);
 
   const add = useCallback(
     (item: WatchItem) => {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 
 export type Table = "entries" | "watchlist";
@@ -33,17 +32,10 @@ function writeJSON(key: string, value: unknown) {
   }
 }
 
-function removeKey(key: string) {
-  try {
-    localStorage.removeItem(key);
-  } catch {}
-}
-
-const keys = (table: Table, uid: string | null) => ({
-  // Signed out uses the original key, so data saved before sync existed is still there.
-  cache: uid ? `reel:${table}:${uid}` : `reel:${table}`,
-  pending: `reel:pending:${table}:${uid}`,
-  migrated: `reel:migrated:${table}:${uid}`,
+const keys = (table: Table) => ({
+  cache: `reel:${table}`, // same key the app used before sync existed
+  pending: `reel:pending:${table}`,
+  merged: `reel:merged:${table}`,
 });
 
 const PAGE = 1000;
@@ -59,20 +51,19 @@ async function fetchAll<T>(table: Table): Promise<T[]> {
 }
 
 /** Send queued writes. Keys edited again while the request was in flight stay queued. */
-async function flush<T>(table: Table, uid: string) {
-  const k = keys(table, uid);
-  const snapshot = readJSON<Pending<T>>(k.pending, {});
-  const entries = Object.entries(snapshot);
+async function flush<T>(table: Table) {
+  const k = keys(table);
+  const entries = Object.entries(readJSON<Pending<T>>(k.pending, {}));
   if (entries.length === 0) return;
 
-  const upserts = entries.filter(([, v]) => v !== null).map(([key, data]) => ({ user_id: uid, key, data }));
+  const upserts = entries.filter(([, v]) => v !== null).map(([key, data]) => ({ key, data }));
   const deletes = entries.filter(([, v]) => v === null).map(([key]) => key);
   if (upserts.length) {
-    const { error } = await supabase!.from(REMOTE[table]).upsert(upserts, { onConflict: "user_id,key" });
+    const { error } = await supabase!.from(REMOTE[table]).upsert(upserts, { onConflict: "key" });
     if (error) throw error;
   }
   if (deletes.length) {
-    const { error } = await supabase!.from(REMOTE[table]).delete().eq("user_id", uid).in("key", deletes);
+    const { error } = await supabase!.from(REMOTE[table]).delete().in("key", deletes);
     if (error) throw error;
   }
 
@@ -84,18 +75,15 @@ async function flush<T>(table: Table, uid: string) {
 }
 
 /**
- * A keyed list stored in localStorage and, when signed in, mirrored to a Supabase table
- * (`movie_entries` / `movie_watchlist`: `user_id, key, data jsonb`). Local state updates instantly; remote writes are queued and retried.
+ * A keyed list stored in localStorage and, when Supabase is configured, mirrored to a shared
+ * table (`movie_entries` / `movie_watchlist`: `key, data jsonb`). There are no accounts: every
+ * device reads and writes the same rows. Local state updates instantly; remote writes are
+ * queued and retried.
  *
- * `merge` (a stable, module-level function) decides whether a signed-out device's local item
- * replaces the account's copy the first time someone signs in on that device.
+ * `merge` (a stable, module-level function) decides whether an item already saved on this
+ * device replaces the shared copy the first time the device syncs.
  */
-export function useSyncedList<T extends { key: string }>(
-  table: Table,
-  user: User | null,
-  merge: (local: T, remote: T | undefined) => boolean,
-) {
-  const uid = user?.id ?? null;
+export function useSyncedList<T extends { key: string }>(table: Table, merge: (local: T, remote: T | undefined) => boolean) {
   const [items, setItems] = useState<T[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<SyncStatus>("local");
@@ -106,42 +94,41 @@ export function useSyncedList<T extends { key: string }>(
     (next: T[]) => {
       itemsRef.current = next;
       setItems(next);
-      writeJSON(keys(table, uid).cache, next);
+      writeJSON(keys(table).cache, next);
     },
-    [table, uid],
+    [table],
   );
 
   const push = useCallback(async () => {
-    if (!supabase || !uid) return;
+    if (!supabase) return;
     setStatus("syncing");
     try {
-      await flush<T>(table, uid);
+      await flush<T>(table);
       setStatus("synced");
     } catch {
       setStatus(navigator.onLine ? "error" : "offline");
     }
-  }, [table, uid]);
+  }, [table]);
 
   const pull = useCallback(async () => {
-    if (!supabase || !uid) return;
-    const k = keys(table, uid);
+    if (!supabase) return;
+    const k = keys(table);
     const gen = generation.current;
     setStatus("syncing");
     try {
-      await flush<T>(table, uid);
+      await flush<T>(table);
 
-      // First sign-in on this device: fold in whatever was saved locally while signed out.
-      if (!localStorage.getItem(k.migrated)) {
-        const local = readJSON<T[]>(keys(table, null).cache, []);
-        if (local.length) {
+      // First sync on this device: fold in whatever it already had saved locally.
+      if (!localStorage.getItem(k.merged)) {
+        const local = readJSON<T[]>(k.cache, []);
+        if (Array.isArray(local) && local.length) {
           const remote = new Map((await fetchAll<T>(table)).map((i) => [i.key, i]));
           const pending = readJSON<Pending<T>>(k.pending, {});
           for (const item of local) if (merge(item, remote.get(item.key))) pending[item.key] = item;
           writeJSON(k.pending, pending);
-          await flush<T>(table, uid);
-          removeKey(keys(table, null).cache);
+          await flush<T>(table);
         }
-        writeJSON(k.migrated, true);
+        writeJSON(k.merged, true);
       }
 
       const remote = await fetchAll<T>(table);
@@ -156,22 +143,22 @@ export function useSyncedList<T extends { key: string }>(
     } catch {
       setStatus(navigator.onLine ? "error" : "offline");
     }
-  }, [table, uid, show, merge]);
+  }, [table, show, merge]);
 
-  // Load the cache for whoever is signed in, then sync.
+  // Show the local cache straight away, then sync.
   useEffect(() => {
-    const cached = readJSON<T[]>(keys(table, uid).cache, []);
+    const cached = readJSON<T[]>(keys(table).cache, []);
     itemsRef.current = Array.isArray(cached) ? cached : [];
     setItems(itemsRef.current);
     setLoaded(true);
-    setStatus(uid && supabase ? "syncing" : "local");
+    setStatus(supabase ? "syncing" : "local");
     pull();
-  }, [table, uid, pull]);
+  }, [table, pull]);
 
   // Pick up changes from other devices: live via realtime, plus whenever the app regains focus
   // (iOS suspends background tabs, so realtime alone isn't enough on iPhone).
   useEffect(() => {
-    if (!supabase || !uid) return;
+    if (!supabase) return;
     let timer: ReturnType<typeof setTimeout>;
     const soon = () => {
       clearTimeout(timer);
@@ -184,8 +171,8 @@ export function useSyncedList<T extends { key: string }>(
     window.addEventListener("online", soon);
     window.addEventListener("focus", soon);
     const channel = supabase
-      .channel(`${REMOTE[table]}:${uid}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: REMOTE[table], filter: `user_id=eq.${uid}` }, soon)
+      .channel(REMOTE[table])
+      .on("postgres_changes", { event: "*", schema: "public", table: REMOTE[table] }, soon)
       .subscribe();
     return () => {
       clearTimeout(timer);
@@ -194,16 +181,16 @@ export function useSyncedList<T extends { key: string }>(
       window.removeEventListener("focus", soon);
       supabase!.removeChannel(channel);
     };
-  }, [table, uid, pull]);
+  }, [table, pull]);
 
   /** Replace the whole list; only keys that actually changed are sent to Supabase. */
   const commit = useCallback(
     (next: T[]) => {
       const prev = new Map(itemsRef.current.map((i) => [i.key, i]));
       show(next);
-      if (!supabase || !uid) return;
+      if (!supabase) return;
       generation.current++;
-      const k = keys(table, uid);
+      const k = keys(table);
       const pending = readJSON<Pending<T>>(k.pending, {});
       const nextKeys = new Set<string>();
       for (const item of next) {
@@ -214,7 +201,7 @@ export function useSyncedList<T extends { key: string }>(
       writeJSON(k.pending, pending);
       push();
     },
-    [show, push, table, uid],
+    [show, push, table],
   );
 
   const current = useCallback(() => itemsRef.current, []);
