@@ -1,67 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
+import type { User } from "@supabase/supabase-js";
 import type { TitleFacts, WatchItem } from "./types";
+import { useSyncedList } from "./useSyncedList";
 
-const STORAGE_KEY = "reel:watchlist";
+const missing = (_local: WatchItem, remote: WatchItem | undefined) => !remote;
 
-function read(): WatchItem[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
+/** Watchlist, stored locally and synced to Supabase when signed in. */
+export function useWatchlist(user: User | null) {
+  const { items, status, commit, current } = useSyncedList<WatchItem>("watchlist", user, missing);
 
-function write(items: WatchItem[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  } catch {
-    // storage full or unavailable; state still works for this session
-  }
-}
+  const add = useCallback(
+    (item: WatchItem) => {
+      if (!current().some((i) => i.key === item.key)) commit([...current(), item]);
+    },
+    [commit, current],
+  );
 
-/** Same pattern as useEntries: storage stays behind the hook so it can be swapped for Supabase. */
-export function useWatchlist() {
-  const [items, setItems] = useState<WatchItem[]>([]);
+  const remove = useCallback(
+    (key: string) => {
+      if (current().some((i) => i.key === key)) commit(current().filter((i) => i.key !== key));
+    },
+    [commit, current],
+  );
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is only readable after mount
-    setItems(read());
-  }, []);
+  const update = useCallback(
+    (key: string, patch: TitleFacts) => commit(current().map((i) => (i.key === key ? { ...i, ...patch } : i))),
+    [commit, current],
+  );
 
-  const replaceAll = useCallback((next: WatchItem[]) => {
-    setItems(next);
-    write(next);
-  }, []);
-
-  const add = useCallback((item: WatchItem) => {
-    setItems((prev) => {
-      if (prev.some((i) => i.key === item.key)) return prev;
-      const next = [...prev, item];
-      write(next);
-      return next;
-    });
-  }, []);
-
-  const remove = useCallback((key: string) => {
-    setItems((prev) => {
-      if (!prev.some((i) => i.key === key)) return prev;
-      const next = prev.filter((i) => i.key !== key);
-      write(next);
-      return next;
-    });
-  }, []);
-
-  const update = useCallback((key: string, patch: TitleFacts) => {
-    setItems((prev) => {
-      const next = prev.map((i) => (i.key === key ? { ...i, ...patch } : i));
-      write(next);
-      return next;
-    });
-  }, []);
-
-  return { items, add, remove, update, replaceAll };
+  return { items, status, add, remove, update, replaceAll: commit };
 }

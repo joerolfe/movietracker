@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import AccountSheet, { STATUS_DOT, STATUS_TEXT } from "@/components/AccountSheet";
 import RateModal from "@/components/RateModal";
+import Sheet from "@/components/Sheet";
 import Stars from "@/components/Stars";
 import { fetchDetails, getFacts } from "@/lib/details";
+import { useAuth } from "@/lib/useAuth";
 import { useEntries } from "@/lib/useEntries";
+import type { SyncStatus } from "@/lib/useSyncedList";
 import { useWatchlist } from "@/lib/useWatchlist";
 import { describeFacts, entryKey, formatDuration, normalizeGroups, type Entry, type MediaType, type SearchResult, type TitleFacts, type WatchItem } from "@/lib/types";
 
@@ -16,6 +20,31 @@ const TABS: { type: MediaType; label: string }[] = [
 ];
 
 type TabId = MediaType | "watchlist";
+
+const icon = (d: ReactNode) => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    {d}
+  </svg>
+);
+
+const TAB_ICONS: Record<TabId, ReactNode> = {
+  movie: icon(
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4" />
+    </>,
+  ),
+  tv: icon(
+    <>
+      <rect x="3" y="6" width="18" height="13" rx="2" />
+      <path d="M8 2l4 4 4-4" />
+    </>,
+  ),
+  watchlist: icon(<path d="M6 3h12v18l-6-4-6 4z" />),
+};
+
+const SYNC_ORDER: SyncStatus[] = ["error", "offline", "syncing", "synced", "local"];
+const worst = (...all: SyncStatus[]) => SYNC_ORDER.find((s) => all.includes(s)) ?? "local";
 
 function toResult(e: Entry | WatchItem): SearchResult {
   return { id: e.id, type: e.type, title: e.title, year: e.year, poster: e.poster, overview: "" };
@@ -107,7 +136,7 @@ function Tile({
   const facts = useFacts(item);
   const meta = [item.year || "—", describeFacts(facts, true)].filter(Boolean).join(" · ");
   return (
-    <button type="button" onClick={onClick} className="group text-left">
+    <button type="button" onClick={onClick} className="group min-w-0 text-left transition active:scale-[0.97]">
       <div className="relative aspect-[2/3] overflow-hidden rounded-md border border-line bg-panel transition group-hover:border-accent">
         <Poster src={item.poster} title={item.title} />
         {rating !== undefined ? <Badge rating={rating} /> : label ? <Badge label={label} /> : null}
@@ -226,7 +255,9 @@ function TabPanel({
           onChange={(e) => setQuery(e.target.value)}
           placeholder={`Search ${label} to rate…`}
           aria-label={`Search ${label}`}
-          className="w-full rounded-lg border border-line bg-panel px-4 py-3 outline-none placeholder:text-muted focus:border-accent"
+          enterKeyHint="search"
+          autoCorrect="off"
+          className="w-full rounded-lg border border-line bg-panel px-4 py-3 text-base outline-none placeholder:text-muted focus:border-accent"
         />
         {error && (
           <p role="alert" className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
@@ -268,7 +299,7 @@ function TabPanel({
             value={sort}
             onChange={(e) => setSort(e.target.value as Sort)}
             aria-label="Sort"
-            className="rounded-lg border border-line bg-panel px-3 py-1.5 text-sm outline-none focus:border-accent"
+            className="rounded-lg border border-line bg-panel px-3 py-1.5 text-base outline-none focus:border-accent sm:text-sm"
           >
             <option value="recent">Recently watched</option>
             <option value="highest">Highest rated</option>
@@ -278,14 +309,17 @@ function TabPanel({
         </div>
 
         {groups.length > 0 && (
-          <div className="mb-4 flex flex-wrap gap-2" aria-label="Filter by group">
+          <div
+            className="no-scrollbar -mx-4 mb-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
+            aria-label="Filter by group"
+          >
             {[null, ...groups].map((g) => (
               <button
                 key={g ?? "__all"}
                 type="button"
                 onClick={() => setGroup(g)}
                 aria-pressed={activeGroup === g}
-                className={`rounded-full border px-3 py-1 text-sm ${
+                className={`shrink-0 rounded-full border px-3 py-1.5 text-sm ${
                   activeGroup === g
                     ? "border-accent bg-accent text-black"
                     : "border-line bg-panel text-muted hover:border-accent hover:text-accent"
@@ -359,9 +393,11 @@ function WatchlistPanel({
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search films and TV series to add to your watchlist…"
+          placeholder="Search to add to your watchlist…"
           aria-label="Search to add to watchlist"
-          className="w-full rounded-lg border border-line bg-panel px-4 py-3 outline-none placeholder:text-muted focus:border-accent"
+          enterKeyHint="search"
+          autoCorrect="off"
+          className="w-full rounded-lg border border-line bg-panel px-4 py-3 text-base outline-none placeholder:text-muted focus:border-accent"
         />
         {error && (
           <p role="alert" className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
@@ -450,64 +486,57 @@ function WatchlistSheet({
   onRemove: () => void;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={item.title}
-        className="w-full rounded-t-2xl border border-line bg-panel p-5 shadow-2xl sm:max-w-sm sm:rounded-2xl"
-      >
-        <h2 className="text-lg font-semibold leading-tight">{item.title}</h2>
-        <p className="text-sm text-muted">
-          {item.year || "—"} · {item.type === "movie" ? "Film" : "TV series"}
-        </p>
-        {describeFacts(item) && <p className="text-sm text-muted">{describeFacts(item)}</p>}
-        <div className="mt-5 flex flex-col gap-2">
-          <button
-            type="button"
-            onClick={onWatched}
-            className="rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-black hover:brightness-110"
-          >
-            Watched it — rate &amp; review
-          </button>
-          <button
-            type="button"
-            onClick={onRemove}
-            className="rounded-lg border border-line px-4 py-2.5 text-sm text-red-400 hover:bg-red-400/10"
-          >
-            Remove from watchlist
-          </button>
-          <button type="button" onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-muted hover:text-[#e6edf3]">
-            Cancel
-          </button>
-        </div>
+    <Sheet label={item.title} onClose={onClose} className="sm:max-w-sm">
+      <h2 className="text-lg font-semibold leading-tight">{item.title}</h2>
+      <p className="text-sm text-muted">
+        {item.year || "—"} · {item.type === "movie" ? "Film" : "TV series"}
+      </p>
+      {describeFacts(item) && <p className="text-sm text-muted">{describeFacts(item)}</p>}
+      <div className="mt-5 flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={onWatched}
+          className="rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-black hover:brightness-110"
+        >
+          Watched it — rate &amp; review
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="rounded-lg border border-line px-4 py-3 text-sm text-red-400 hover:bg-red-400/10"
+        >
+          Remove from watchlist
+        </button>
+        <button type="button" onClick={onClose} className="rounded-lg px-4 py-2.5 text-sm text-muted hover:text-[#e6edf3]">
+          Cancel
+        </button>
       </div>
-    </div>
+    </Sheet>
   );
 }
 
 export default function Home() {
-  const { entries, loaded, save, remove, replaceAll } = useEntries();
-  const watchlist = useWatchlist();
-  const [tab, setTab] = useState<TabId>("movie");
+  const auth = useAuth();
+  const { entries, loaded, status: entriesStatus, save, remove, replaceAll, refresh } = useEntries(auth.user);
+  const watchlist = useWatchlist(auth.user);
+  const status = worst(entriesStatus, watchlist.status);
+  const [tab, setTabState] = useState<TabId>("movie");
+  const [account, setAccount] = useState(false);
   const [picked, setPicked] = useState<WatchItem | null>(null);
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const setTab = (next: TabId) => {
+    if (next === tab) window.scrollTo({ top: 0, behavior: "smooth" });
+    setTabState(next);
+  };
+
+  const tabs: { id: TabId; label: string; count: number }[] = [
+    ...TABS.map((t) => ({ id: t.type as TabId, label: t.label, count: entries.filter((e) => e.type === t.type).length })),
+    { id: "watchlist", label: "Watchlist", count: watchlist.items.length },
+  ];
 
   const existing = selected ? entries.find((e) => e.key === entryKey(selected.type, selected.id)) : undefined;
   const close = () => setSelected(null);
@@ -588,39 +617,31 @@ export default function Home() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl flex-1 px-4 pb-16">
-      <header className="flex items-center justify-between gap-3 py-5">
-        <h1 className="text-2xl font-bold tracking-tight">
+    <div className="mx-auto w-full max-w-5xl flex-1 px-safe-4 pt-safe pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:pb-16">
+      <header className="flex items-center justify-between gap-3 py-4 sm:py-5">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
           <span className="text-accent">●</span> Movie Tracker
         </h1>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent"
-          >
-            Import
-          </button>
-          <button
-            type="button"
-            onClick={exportJson}
-            disabled={entries.length === 0 && watchlist.items.length === 0}
-            className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-40 disabled:hover:border-line disabled:hover:text-inherit"
-          >
-            Export
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="application/json,.json"
-            hidden
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) importJson(f);
-              e.target.value = "";
-            }}
-          />
-        </div>
+        <button
+          type="button"
+          onClick={() => setAccount(true)}
+          aria-label={`Account and sync: ${STATUS_TEXT[status]}`}
+          className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm hover:border-accent hover:text-accent"
+        >
+          <span className={`h-2 w-2 rounded-full ${STATUS_DOT[status]}`} aria-hidden />
+          {auth.user ? "Account" : auth.enabled ? "Sign in" : "Backup"}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) importJson(f);
+            e.target.value = "";
+          }}
+        />
       </header>
 
       {notice && (
@@ -633,33 +654,43 @@ export default function Home() {
         </p>
       )}
 
-      <nav className="mb-6 flex gap-1 border-b border-line" role="tablist">
-        {TABS.map((t) => {
-          const count = entries.filter((e) => e.type === t.type).length;
-          return (
-            <button
-              key={t.type}
-              role="tab"
-              aria-selected={tab === t.type}
-              onClick={() => setTab(t.type)}
-              className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium ${
-                tab === t.type ? "border-accent text-accent" : "border-transparent text-muted hover:text-[#e6edf3]"
-              }`}
-            >
-              {t.label} <span className="ml-1 text-xs opacity-70">{loaded ? count : ""}</span>
-            </button>
-          );
-        })}
-        <button
-          role="tab"
-          aria-selected={tab === "watchlist"}
-          onClick={() => setTab("watchlist")}
-          className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium ${
-            tab === "watchlist" ? "border-accent text-accent" : "border-transparent text-muted hover:text-[#e6edf3]"
-          }`}
-        >
-          Watchlist <span className="ml-1 text-xs opacity-70">{loaded ? watchlist.items.length : ""}</span>
-        </button>
+      {/* Tabs: underline row on larger screens, iOS-style bar pinned to the bottom on phones. */}
+      <nav className="mb-6 hidden gap-1 border-b border-line sm:flex" role="tablist">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium ${
+              tab === t.id ? "border-accent text-accent" : "border-transparent text-muted hover:text-[#e6edf3]"
+            }`}
+          >
+            {t.label} <span className="ml-1 text-xs opacity-70">{loaded ? t.count : ""}</span>
+          </button>
+        ))}
+      </nav>
+      <nav
+        className="fixed inset-x-0 bottom-0 z-40 flex border-t border-line bg-bg/90 px-safe-4 pb-[env(safe-area-inset-bottom)] backdrop-blur-lg sm:hidden"
+        role="tablist"
+      >
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className={`flex flex-1 flex-col items-center gap-0.5 pt-2 pb-1.5 text-[11px] font-medium ${
+              tab === t.id ? "text-accent" : "text-muted"
+            }`}
+          >
+            {TAB_ICONS[t.id]}
+            <span>
+              {t.label}
+              {loaded && t.count > 0 && <span className="ml-1 opacity-70">{t.count}</span>}
+            </span>
+          </button>
+        ))}
       </nav>
 
       <WatchlistPanel
@@ -707,6 +738,18 @@ export default function Home() {
             setPicked(null);
           }}
           onClose={() => setPicked(null)}
+        />
+      )}
+
+      {account && (
+        <AccountSheet
+          user={auth.user}
+          status={status}
+          canExport={entries.length > 0 || watchlist.items.length > 0}
+          onImport={() => fileRef.current?.click()}
+          onExport={exportJson}
+          onSync={refresh}
+          onClose={() => setAccount(false)}
         />
       )}
 

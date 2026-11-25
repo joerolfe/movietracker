@@ -10,10 +10,17 @@ const geistSans = Geist({
 export const metadata: Metadata = {
   title: "Movie Tracker",
   description: "Rate films and TV series out of 5, to one decimal place.",
+  // "Add to Home Screen" on iPhone opens full-screen, like an app.
+  appleWebApp: { capable: true, title: "Movies", statusBarStyle: "black-translucent" },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
   themeColor: "#14181c",
+  colorScheme: "dark",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover", // lets the safe-area padding take over around the notch and home indicator
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

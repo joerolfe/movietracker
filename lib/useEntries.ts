@@ -1,62 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
+import type { User } from "@supabase/supabase-js";
 import type { Entry } from "./types";
+import { useSyncedList } from "./useSyncedList";
 
-const STORAGE_KEY = "reel:entries";
+// When a signed-out device first signs in, its local rating wins only if it's newer.
+const newer = (local: Entry, remote: Entry | undefined) => !remote || local.updatedAt > remote.updatedAt;
 
-function read(): Entry[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
+/** Ratings, stored locally and synced to Supabase when signed in. */
+export function useEntries(user: User | null) {
+  const { items: entries, loaded, status, commit, current, refresh } = useSyncedList<Entry>("entries", user, newer);
 
-function write(entries: Entry[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  } catch {
-    // storage full or unavailable; state still works for this session
-  }
-}
+  const save = useCallback(
+    (entry: Entry) => commit([...current().filter((e) => e.key !== entry.key), entry]),
+    [commit, current],
+  );
 
-/**
- * Storage lives entirely behind this hook. To move to Supabase later, keep
- * this return shape and swap the read/write calls for async ones.
- */
-export function useEntries() {
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const remove = useCallback((key: string) => commit(current().filter((e) => e.key !== key)), [commit, current]);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is only readable after mount
-    setEntries(read());
-    setLoaded(true);
-  }, []);
-
-  const replaceAll = useCallback((next: Entry[]) => {
-    setEntries(next);
-    write(next);
-  }, []);
-
-  const save = useCallback((entry: Entry) => {
-    setEntries((prev) => {
-      const next = [...prev.filter((e) => e.key !== entry.key), entry];
-      write(next);
-      return next;
-    });
-  }, []);
-
-  const remove = useCallback((key: string) => {
-    setEntries((prev) => {
-      const next = prev.filter((e) => e.key !== key);
-      write(next);
-      return next;
-    });
-  }, []);
-
-  return { entries, loaded, save, remove, replaceAll };
+  return { entries, loaded, status, save, remove, replaceAll: commit, refresh };
 }

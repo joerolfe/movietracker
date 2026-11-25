@@ -18,3 +18,93 @@ body {
 input[type="date"] {
   color-scheme: dark;
 }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* No 300ms double-tap-zoom delay on buttons and links. */
+button,
+a,
+input,
+select,
+label {
+  touch-action: manipulation;
+}
+
+/* Padding that clears the iPhone home indicator / notch (env() is 0 elsewhere). */
+@utility pb-safe-3 {
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+}
+@utility pb-safe-5 {
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
+}
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility px-safe-4 {
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+.sheet-in {
+  animation: sheet-up 180ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet-in {
+    animation: none;
+  }
+}
+
+/* Rating slider with a thumb big enough for a finger. */
+input[type="range"].range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2.75rem;
+  background: transparent;
+}
+input[type="range"].range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--color-accent) var(--pct, 0%), var(--color-line) var(--pct, 0%));
+}
+input[type="range"].range::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-line);
+}
+input[type="range"].range::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-accent);
+}
+input[type="range"].range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: -10px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  border: 3px solid var(--color-panel);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+input[type="range"].range::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  border: 3px solid var(--color-panel);
+}
